@@ -37,6 +37,7 @@ def create_offer_message():
     Creates an offer message with the required format into easier data that the server can send information as.
     """
     message = struct.pack('!I B H H', MAGIC_COOKIE, MESSAGE_TYPE_OFFER, UDP_PORT, TCP_PORT)
+
     # Constructing the message in the specific offer message format using binary encoding:
     # '!I B H H': setting up the format
     # !: specifies the byte order
@@ -51,7 +52,7 @@ def broadcast_offers(udp_socket, message):
     Continuously broadcasts the offer message.
     """
     while True:
-        udp_socket.sendto(message, ('<broadcast>', UDP_PORT))  # Send to broadcast address
+        udp_socket.sendto(message, ('192.168.56.1', UDP_PORT))  # Send to broadcast address
         # udp_socket.sendto(data, (host, port))
         # <broadcast>: is a special address used to send data to all devices on the network
         # UDP_PORT: we use the UDP_PORT because broadcasting and the client listens on UDP
