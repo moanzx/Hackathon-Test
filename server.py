@@ -26,7 +26,7 @@ def create_broadcasting_socket():
     # 1: enables broadcasting
     # There are more configurations that can be set if we think we need this in Noam's notes
 
-    udp_socket.bind(('192.168.56.1', 0))
+    udp_socket.bind(('', 0))
     # Associating the socket with a specific IP address and port on the local machine:
     # The tuple is (host, port)
     # '': Bind to all available network interfaces on the machine (e.g., Wi-Fi, Ethernet)
