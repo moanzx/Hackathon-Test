@@ -1,9 +1,11 @@
 import socket
 import struct
+import threading
 
 # Constants
 MAGIC_COOKIE = 0xabcddcba  # To identify valid messages
 MESSAGE_TYPE_OFFER = 0x2   # Specifies an offer message type
+MESSAGE_TYPE_REQUEST = 0x3 # Specifies an request message type
 UDP_PORT = 13117           # The port to listen for broadcasts
 
 def create_UDP_socket():
@@ -47,6 +49,7 @@ def listen_for_offers(udp_socket):
     """
     Listens for UDP broadcast offers and parses the offer message.
     """
+    print('Client started, listening for offer requests...')
     while True:
         data, addr = udp_socket.recvfrom(1024)  # Receive data from a broadcast message
 
@@ -55,15 +58,68 @@ def listen_for_offers(udp_socket):
             magic_cookie, msg_type, udp_port, tcp_port = struct.unpack('!I B H H', data[:9])
             #  Decodes the first 9 bytes of the message and sets them up in their variable
 
-            # Validate the message
-            if magic_cookie == MAGIC_COOKIE and msg_type == MESSAGE_TYPE_OFFER:
-                print(f"Received offer from {addr[0]}: UDP port {udp_port}, TCP port {tcp_port}")
-                connect_to_server(addr[0], tcp_port)
+            # # Validate the message
+            if magic_cookie == MAGIC_COOKIE and msg_type == 0x2:
+                print(f"Received offer from {addr[0]}")
+                return addr[0] # return the ip from where we recieved offer
+            
+
         except struct.error:
             print(f"Received invalid message from {addr}")
 
-    
+def create_request_message(file_size):
+    """
+    Creates an offer message with the required format into easier data that the server can send information as.
+    """
+    message = struct.pack('!I B Q', MAGIC_COOKIE, MESSAGE_TYPE_REQUEST, file_size)
+
+    # Constructing the message in the specific offer message format using binary encoding:
+    # '!I B H H': setting up the format
+    # !: specifies the byte order
+    # I: Unsigned 4-byte Integer - MAGIC_COOKIE
+    # B: Unsigned 1-byte Integer - MESSAGE_TYPE_OFFER
+    # Q: Unsigned 8-byte integer - file_size
+    return message
+
+
+def send_udp_request(udp_socket, server_ip, port, file_size, index):
+    request_message = create_request_message(file_size)
+    udp_socket.sendto(request_message, (server_ip, port))
+    print(f"sent udp number: {index}, to address: {server_ip}:{port}")
 
 if __name__ == "__main__":
+
+    # file_size = input("Please input file size: ")
+    # tcp_connection_amount = input("Please TCP connections: ")
+    # udp_connection_amoount = input("Please UDP connections: ")
+    
+    file_size = 8589934592 # 1GB = 1 * 8 * 2^30 = 8589934592
+    tcp_connection_amount = 0
+    udp_connection_amount = 2
+
+
     udp_socket = create_UDP_socket()
-    listen_for_offers(udp_socket)
+    offered_server_ip = listen_for_offers(udp_socket)
+
+    threads = []
+    for i in range(tcp_connection_amount):
+        pass # open thread for tcp connection
+
+    for i in range(udp_connection_amount):
+        threads.append(threading.Thread(target=send_udp_request, args=(udp_socket, offered_server_ip, UDP_PORT, file_size, i), daemon=True))
+        threads[-1].start()
+
+    for thread in threads:
+        thread.join()
+
+    while True:
+        pass
+
+    
+
+
+
+
+
+
+
