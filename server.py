@@ -7,8 +7,10 @@ import threading
 MAGIC_COOKIE = 0xabcddcba  # Identifies valid messages
 MESSAGE_TYPE_OFFER = 0x2   # Specifies an "offer" message type
 MESSAGE_TYPE_REQUEST = 0x3 # Specifies a "request" message type
+MESSAGE_TYPE_PAYLOAD = 0x4
 UDP_PORT = 13117           # Port for broadcasting messages
 TCP_PORT = 12345           # Port for incoming TCP connections
+UDP_PORT2 = 60000
 
 def create_broadcasting_socket():
     """
@@ -37,7 +39,7 @@ def create_broadcasting_socket():
 def create_udp_listening_socket():
     udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    udp_socket.bind(('192.168.56.1', UDP_PORT))  # Listen on the specific port
+    udp_socket.bind(('', UDP_PORT2))  # Listen on the specific port
     return udp_socket
 
 
@@ -45,7 +47,7 @@ def create_offer_message():
     """
     Creates an offer message with the required format into easier data that the server can send information as.
     """
-    message = struct.pack('!I B H H', MAGIC_COOKIE, MESSAGE_TYPE_OFFER, UDP_PORT, TCP_PORT)
+    message = struct.pack('!I B H H', MAGIC_COOKIE, MESSAGE_TYPE_OFFER, UDP_PORT2, TCP_PORT)
 
     # Constructing the message in the specific offer message format using binary encoding:
     # '!I B H H': setting up the format
@@ -60,7 +62,7 @@ def broadcast_offers(udp_socket, message):
     """
     Continuously broadcasts the offer message.
     """
-    print(f"Server started, listening on IP address {udp_socket.getsockname()[0]}")
+    # print(f"Server started, listening on IP address {udp_socket.getsockname()[0]}")
     while True:
         udp_socket.sendto(message, ('<broadcast>', UDP_PORT))  # Send to broadcast address
         # udp_socket.sendto(data, (host, port))
@@ -85,38 +87,23 @@ def handle_tcp_client(client_socket):
 
 
 def handle_udp_requests(udp_socket):
-    # print("Server listening for UDP requests...")
-    # while True:
-    #     try:
-    #         data, addr = udp_socket.recvfrom(1024)  # Buffer size of 1024 bytes
-    #         magic_cookie, message_type, file_size = struct.unpack('!I B Q', data[:13])
-    #         if magic_cookie == MAGIC_COOKIE and message_type == MESSAGE_TYPE_REQUEST:
-    #             print(f"Received valid request from {addr} with file size: {file_size}")
-    #             # Optional response to the client
-    #             response = f"Request received for file size: {file_size}".encode()
-    #             udp_socket.sendto(response, addr)
-    #     except struct.error:
-    #         print("Received invalid message")
-    #     except Exception as e:
-    #         print(f"Error handling UDP request: {e}")
-    print("Server listening for UDP requests...")
+    print(f"Server listening for UDP requests... on {udp_socket.getsockname()}")
     while True:
         try:
             data, addr = udp_socket.recvfrom(1024)
-            if addr[0] == udp_socket.getsockname()[0]:
-                # Ignore packets from the server itself
-                continue
-            print(data)
-            if len(data) < 13:
-                print(f"Invalid packet size from {addr}")
-                continue
-            magic_cookie, message_type, file_size = struct.unpack('!I B Q', data[:13])
+                
+            magic_cookie, message_type = struct.unpack('!I B', data[:5])
             if magic_cookie == MAGIC_COOKIE and message_type == MESSAGE_TYPE_REQUEST:
+
+                magic_cookie, message_type, file_size = struct.unpack('!I B Q', data[:13])
                 print(f"Received valid request from {addr} with file size: {file_size}")
-                response = f"Request received for file size: {file_size}".encode()
-                udp_socket.sendto(response, addr)
-            else:
-                print(f"Invalid magic cookie or message type from {addr}")
+                payload = b'\x00' * file_size
+                header = struct.pack('!I B', MAGIC_COOKIE, MESSAGE_TYPE_PAYLOAD)
+                message = header + payload
+                udp_socket.sendto(message, (addr[0], UDP_PORT))
+
+
+
         except struct.error as e:
             print(f"Struct error: {e} from {addr}")
         except Exception as e:

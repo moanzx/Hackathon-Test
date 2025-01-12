@@ -1,6 +1,7 @@
 import socket
 import struct
 import threading
+import time
 
 # Constants
 MAGIC_COOKIE = 0xabcddcba  # To identify valid messages
@@ -17,11 +18,11 @@ def create_UDP_socket():
     # socket.AF_INET: IPv4
     # socket.SOCK_DGRAM: UDP communication (connectionless)
 
-    udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    # Setting up the socket configurations with the following parameters:
-    # socket.SOL_SOCKET: setting the socket with the "General behaivour" of a socket
-    # socket.SO_REUSEPORT: Allows multiple applications to bind to the same port
-    # 1: enables broadcasting
+    # udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    # # Setting up the socket configurations with the following parameters:
+    # # socket.SOL_SOCKET: setting the socket with the "General behaivour" of a socket
+    # # socket.SO_REUSEPORT: Allows multiple applications to bind to the same port
+    # # 1: enables broadcasting
 
     udp_socket.bind(('', UDP_PORT))
     # Associating the socket with a specific IP address and port on the local machine:
@@ -61,7 +62,7 @@ def listen_for_offers(udp_socket):
             # # Validate the message
             if magic_cookie == MAGIC_COOKIE and msg_type == 0x2:
                 print(f"Received offer from {addr[0]}")
-                return addr[0] # return the ip from where we recieved offer
+                return addr[0], udp_port # return the ip from where we recieved offer
             
 
         except struct.error:
@@ -83,6 +84,7 @@ def create_request_message(file_size):
 
 
 def send_udp_request(udp_socket, server_ip, port, file_size, index):
+
     request_message = create_request_message(file_size)
     udp_socket.sendto(request_message, (server_ip, port))
     print(f"sent udp number: {index}, to address: {server_ip}:{port}")
@@ -97,16 +99,18 @@ if __name__ == "__main__":
     tcp_connection_amount = 0
     udp_connection_amount = 2
 
+    udp_packet_size = file_size // udp_connection_amount
+
 
     udp_socket = create_UDP_socket()
-    offered_server_ip = listen_for_offers(udp_socket)
-
+    offered_server_ip, offered_server_port = listen_for_offers(udp_socket)
     threads = []
     for i in range(tcp_connection_amount):
         pass # open thread for tcp connection
 
-    for i in range(udp_connection_amount):
-        threads.append(threading.Thread(target=send_udp_request, args=(udp_socket, offered_server_ip, UDP_PORT, file_size, i), daemon=True))
+    
+    for i in range(1, udp_connection_amount + 1):
+        threads.append(threading.Thread(target=send_udp_request, args=(udp_socket, offered_server_ip, offered_server_port, udp_packet_size, i), daemon=True))
         threads[-1].start()
 
     for thread in threads:
