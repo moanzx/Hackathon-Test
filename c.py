@@ -21,7 +21,7 @@ class SpeedTestClient:
         self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.udp_socket.bind(("", UDP_BROADCAST_PORT))
-        print("Client started, listening for offer requests...")
+        print("\033[95m" +"Client started, listening for offer requests..." + "\033[0m")
 
         while True:
             data, addr = self.udp_socket.recvfrom(BUFFER_SIZE)
@@ -30,7 +30,7 @@ class SpeedTestClient:
                 if cookie == MAGIC_COOKIE and message_type == OFFER_MESSAGE_TYPE:
                     udp_port, tcp_port = struct.unpack('!HH', data[5:9])
                     self.server_address = (addr[0], udp_port, tcp_port)
-                    print(f"Received offer from {addr[0]}")
+                    print("\033[95m" + f"Received offer from {addr[0]}"+ "\033[0m")
                     return
 
     def send_udp_request(self, file_size, index):
@@ -70,8 +70,8 @@ class SpeedTestClient:
         received_percentage = (len(received_segments) / total_segments * 100) if total_segments else 0
         speed = (total_bytes * 8 / elapsed_time) if elapsed_time > 0 else 0
 
-        print(f"UDP transfer #{index} finished, total time: {elapsed_time:.2f} seconds, "
-              f"speed: {speed:.2f} bits/second, percentage received: {received_percentage:.2f}%")
+        print("\033[0;32m" + f"UDP transfer #{index} finished, total time: {elapsed_time:.2f} seconds, "
+              f"speed: {speed:.2f} bits/second, percentage received: {received_percentage:.2f}%" + "\033[0m")
 
     def send_tcp_request(self, file_size, index):
         """Sends a TCP request to the server and measures the speed."""
@@ -91,18 +91,22 @@ class SpeedTestClient:
 
             elapsed_time = time.time() - start_time
             if not elapsed_time:
-                print(f"TCP transfer #{index} finished, total time: {elapsed_time:.2f} seconds, speed: too fast to calculate")
+                print("\033[0;32m" + f"TCP transfer #{index} finished, total time: {elapsed_time:.2f} seconds, speed: too fast to calculate" + "\033[0m")
             else:
-                print(f"TCP transfer #{index} finished, total time: {elapsed_time:.2f} seconds, speed: {total_bytes * 8 / elapsed_time:.2f} bits/second")
+                print("\033[0;32m" + f"TCP transfer #{index} finished, total time: {elapsed_time:.2f} seconds, speed: {total_bytes * 8 / elapsed_time:.2f} bits/second" + "\033[0m")
 
     def start(self):
         """Starts the client application."""
-        file_size = int(input("Enter file size (bytes): "))
-        tcp_connections = int(input("Enter number of TCP connections: "))
-        udp_connections = int(input("Enter number of UDP connections: "))
 
+        # Asking for thhe parameters
+        file_size = int(input("\033[33m" + "Enter file size (bytes): "+ "\033[0m"))
+        tcp_connections = int(input("\033[33m" + "Enter number of TCP connections: "+ "\033[0m"))
+        udp_connections = int(input("\033[33m" + "Enter number of UDP connections: " + "\033[0m"))
+
+        # Start listening for offers
         self.listen_for_offers()
 
+        # Open threads list to add all the udp and tcp connection asked
         threads = []
 
         # Start TCP threads
@@ -120,7 +124,9 @@ class SpeedTestClient:
         for thread in threads:
             thread.join()
 
-        print("All transfers complete, listening to offer requests...")
+        print("\033[1;34m"  + "All transfers complete, listening to offer requests..." + "\033[0m")
+        
+        # Start all over again
         self.start()
 
 if __name__ == "__main__":
