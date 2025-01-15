@@ -75,9 +75,9 @@ class SpeedTestServer:
     def start_tcp_listener(self):
         """Listens for TCP connections and spawns threads to handle them."""
         self.server_tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.server_tcp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # Allow immediate reuse
+        # self.server_tcp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)  # Allow immediate reuse
         self.server_tcp_socket.bind(("", TCP_PORT))
-        self.server_tcp_socket.listen(5)
+        self.server_tcp_socket.listen(socket.SOMAXCONN)
         # print("TCP server listening...") #decoding peropuse
 
         while True:
