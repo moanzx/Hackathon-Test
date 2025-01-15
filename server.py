@@ -1,143 +1,124 @@
 import socket
 import struct
-import time
 import threading
+import time
 
-# Constants
-MAGIC_COOKIE = 0xabcddcba  # Identifies valid messages
-MESSAGE_TYPE_OFFER = 0x2   # Specifies an "offer" message type
-MESSAGE_TYPE_REQUEST = 0x3 # Specifies a "request" message type
-MESSAGE_TYPE_PAYLOAD = 0x4
-UDP_PORT = 13117           # Port for broadcasting messages
-TCP_PORT = 12345           # Port for incoming TCP connections
-UDP_PORT2 = 60000
+# Server Configuration
+MAGIC_COOKIE = 0xabcddcba
+OFFER_MESSAGE_TYPE = 0x2
+REQUEST_MESSAGE_TYPE = 0x3
+PAYLOAD_MESSAGE_TYPE = 0x4
+UDP_BROADCAST_PORT = 13117
+UDP_LISTENER_PORT = 60000
+TCP_PORT = 12345
 
-def create_broadcasting_socket():
-    """
-    Creates a UDP socket for broadcasting messages.
-    """
-    udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    # Creating the socket with the following parameters:
-    # socket.AF_INET: IPv4
-    # socket.SOCK_DGRAM: UDP communication (connectionless)
+class SpeedTestServer:
+    def __init__(self):
+        """initializes the sockets variables and condition"""
+        self.broadcast_socket = None
+        self.listener_socket = None
+        self.server_tcp_socket = None
 
-    udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-    # Setting up the socket configurations with the following parameters:
-    # socket.SOL_SOCKET: setting the socket with the "General behaivour" of a socket
-    # socket.SO_BROADCAST: enabling the *ability* to send broadcast messages using this socket
-    # 1: enables broadcasting
-    # There are more configurations that can be set if we think we need this in Noam's notes
+        # Condition to make sure listening starts
+        self.condition = threading.Condition()
 
-    udp_socket.bind(('', 0))
-    # Associating the socket with a specific IP address and port on the local machine:
-    # The tuple is (host, port)
-    # '': Bind to all available network interfaces on the machine (e.g., Wi-Fi, Ethernet)
-    # 0: port 0 means let the operating system assign an available port automatically
+    def start_udp_broadcast(self):
+        """Opening the socket and start broadcasts UDP offer messages every second."""
 
-    return udp_socket
+        
+        with self.condition:
+            self.broadcast_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+            self.broadcast_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            print(f"Server started, listening on IP address {socket.gethostbyname(socket.gethostname())}")
+            self.condition.notify_all()  # Notify that the broadcast socket is ready
 
-def create_udp_listening_socket():
-    udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    udp_socket.bind(('', UDP_PORT2))  # Listen on the specific port
-    return udp_socket
-
-
-def create_offer_message():
-    """
-    Creates an offer message with the required format into easier data that the server can send information as.
-    """
-    message = struct.pack('!I B H H', MAGIC_COOKIE, MESSAGE_TYPE_OFFER, UDP_PORT2, TCP_PORT)
-
-    # Constructing the message in the specific offer message format using binary encoding:
-    # '!I B H H': setting up the format
-    # !: specifies the byte order
-    # I: Unsigned 4-byte Integer - MAGIC_COOKIE
-    # B: Unsigned 1-byte Integer - MESSAGE_TYPE_OFFER
-    # H: Unsigned 2-byte Integer Ports are in the range 0-65535, which fits into 2 bytes for both UDP, TCP
-    return message
-
-
-def broadcast_offers(udp_socket, message):
-    """
-    Continuously broadcasts the offer message.
-    """
-    # print(f"Server started, listening on IP address {udp_socket.getsockname()[0]}")
-    while True:
-        udp_socket.sendto(message, ('<broadcast>', UDP_PORT))  # Send to broadcast address
-        # udp_socket.sendto(data, (host, port))
-        # <broadcast>: is a special address used to send data to all devices on the network
-        # UDP_PORT: we use the UDP_PORT because broadcasting and the client listens on UDP
-
-        time.sleep(1)  # Wait 1 second before broadcasting again
-
-def handle_tcp_client(client_socket):
-    """
-    Handles a TCP client connection.
-    """
-    print("TCP client connected")
-    try:
         while True:
-            pass
-    except Exception as e:
-        print(f"Error handling TCP client: {e}")
-    finally:
-        client_socket.close()
-        print("TCP client disconnected")
+            message = struct.pack('!IBHH', MAGIC_COOKIE, OFFER_MESSAGE_TYPE, UDP_LISTENER_PORT, TCP_PORT)
+            self.broadcast_socket.sendto(message, ('<broadcast>', UDP_BROADCAST_PORT))
+            time.sleep(1)
 
-
-def handle_udp_requests(udp_socket):
-    print(f"Server listening for UDP requests... on {udp_socket.getsockname()}")
-    while True:
+    def handle_tcp_connection(self, client_socket):
+        """Handles a single TCP client connection. after accepting the connection and decoding the file size start
+        sending the data through the TCP connection"""
         try:
-            data, addr = udp_socket.recvfrom(1024)
-                
-            magic_cookie, message_type = struct.unpack('!I B', data[:5])
-            if magic_cookie == MAGIC_COOKIE and message_type == MESSAGE_TYPE_REQUEST:
-
-                magic_cookie, message_type, file_size = struct.unpack('!I B Q', data[:13])
-                print(f"Received valid request from {addr} with file size: {file_size}")
-                payload = b'\x00' * file_size
-                header = struct.pack('!I B', MAGIC_COOKIE, MESSAGE_TYPE_PAYLOAD)
-                message = header + payload
-                udp_socket.sendto(message, (addr[0], UDP_PORT))
-
-
-
-        except struct.error as e:
-            print(f"Struct error: {e} from {addr}")
+            data = client_socket.recv(1024).decode()
+            file_size = int(data.strip()) # clean the message of the \n so we can turn it to a integer
+            payload = b'a' * file_size  # generate file of requested size
+            client_socket.sendall(payload) # 
         except Exception as e:
-            print(f"Error handling UDP request: {e}")
+            print(f"Error handling TCP connection: {e}")
+        finally:
+            client_socket.close()
+
+    def handle_udp_connection(self, client_address, request_data):
+        """Handles a single UDP client request."""
+        try:
+            file_size = struct.unpack('!Q', request_data[5:13])[0]
+
+            # Calculate the total number of segments needed to send the file.
+            # Each segment contains 1024 bytes of payload. Adding 1023 ensures
+            # any remainder results in an additional segment (rounding up)
+            total_segments = (file_size + 1023) // 1024  # Assuming 1024-byte packets
+
+            for segment in range(total_segments):
+                payload = struct.pack(
+                    '!IBQQ', MAGIC_COOKIE, PAYLOAD_MESSAGE_TYPE, total_segments, segment
+                ) + b'a' * 1024 # making the payload
+                self.listener_socket.sendto(payload, client_address)
+                # print(f"Sending segment {segment + 1}/{total_segments} to {client_address}")
+                time.sleep(0.000000000000000000000001)  # Add delay, helps so we wont drop packets
+
+        except Exception as e:
+            print(f"Error handling UDP connection: {e}")
 
 
+    def start_tcp_listener(self):
+        """Listens for TCP connections and spawns threads to handle them."""
+        self.server_tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.server_tcp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # Allow immediate reuse
+        self.server_tcp_socket.bind(("", TCP_PORT))
+        self.server_tcp_socket.listen(5)
+        # print("TCP server listening...") #decoding peropuse
+
+        while True:
+            client_socket, _ = self.server_tcp_socket.accept()
+            threading.Thread(target=self.handle_tcp_connection, args=(client_socket,)).start()
+
+    def start_udp_listener(self):
+        """Listens for UDP requests and spawns threads to handle them."""
+        with self.condition:
+            while self.broadcast_socket is None:
+                self.condition.wait()  # Wait until the broadcast socket is initialized
+
+        # Opening socket for listening on a specific port (mainly had an issue with using the same computer to test)
+        self.listener_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.listener_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.listener_socket.bind(("", UDP_LISTENER_PORT))
+
+        while True:
+            try:
+                data, addr = self.listener_socket.recvfrom(4096)
+                # print(f"Received UDP packet from {addr}, data length: {len(data)}") # debugging log
+
+                cookie, message_type = struct.unpack('!IB', data[:5]) 
+                if cookie == MAGIC_COOKIE and message_type == REQUEST_MESSAGE_TYPE:
+                    # print(f"Dispatching UDP handler for {addr}") # debugging log
+
+                    # For each request message open a new thread to start sending the segments to the client
+                    threading.Thread(target=self.handle_udp_connection, args=(addr, data)).start()
+            except Exception as e:
+                print(f"Error receiving UDP data: {e}")
+
+    def start(self):
+        """Starts the server threads for broadcasting and handling requests."""
+        udp_broadcast_thread = threading.Thread(target=self.start_udp_broadcast, daemon=True)
+        udp_broadcast_thread.start()
+
+        udp_listener_thread = threading.Thread(target=self.start_udp_listener, daemon=True)
+        udp_listener_thread.start()
+
+        self.start_tcp_listener()
 
 if __name__ == "__main__":
-    # Create UDP socket and offer message
-    broadcasting_socket = create_broadcasting_socket()
-    listening_udp_socket = create_udp_listening_socket()
-    message = create_offer_message()
-
-    threading.Thread(target=broadcast_offers, args=(broadcasting_socket, message), daemon=True).start()
-    threading.Thread(target=handle_udp_requests, args=(listening_udp_socket,), daemon=True).start()
-
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print("Server shutting down.")
-
-
-    # while True:
-    #     pass
-
-    # # Set up TCP server
-    # with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as tcp_socket:
-    #     tcp_socket.bind(('', TCP_PORT))
-    #     tcp_socket.listen()
-    #     print(f"Server listening on TCP port {TCP_PORT}")
-
-    #     # Accept and handle TCP connections
-    #     while True:
-    #         client_socket, client_address = tcp_socket.accept()
-    #         print(f"Accepted connection from {client_address}")
-    #         threading.Thread(target=handle_tcp_client, args=(client_socket,), daemon=True).start()
+    server = SpeedTestServer()
+    server.start()

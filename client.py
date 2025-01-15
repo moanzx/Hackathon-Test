@@ -3,127 +3,132 @@ import struct
 import threading
 import time
 
-# Constants
-MAGIC_COOKIE = 0xabcddcba  # To identify valid messages
-MESSAGE_TYPE_OFFER = 0x2   # Specifies an offer message type
-MESSAGE_TYPE_REQUEST = 0x3 # Specifies an request message type
-UDP_PORT = 13117           # The port to listen for broadcasts
+# Client Configuration
+MAGIC_COOKIE = 0xabcddcba
+OFFER_MESSAGE_TYPE = 0x2
+REQUEST_MESSAGE_TYPE = 0x3
+PAYLOAD_MESSAGE_TYPE = 0x4
+UDP_BROADCAST_PORT = 13117
+BUFFER_SIZE = 4096
 
-def create_UDP_socket():
-    """
-    Creates a UDP socket for broadcasting messages.
-    """
-    udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    # Creating the socket with the following parameters:
-    # socket.AF_INET: IPv4
-    # socket.SOCK_DGRAM: UDP communication (connectionless)
+class SpeedTestClient:
+    def __init__(self):
+        self.udp_socket = None
+        self.server_address = None
 
-    # udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    # # Setting up the socket configurations with the following parameters:
-    # # socket.SOL_SOCKET: setting the socket with the "General behaivour" of a socket
-    # # socket.SO_REUSEPORT: Allows multiple applications to bind to the same port
-    # # 1: enables broadcasting
+    def listen_for_offers(self):
+        """Listens for server offer messages via UDP broadcast."""
+        self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.udp_socket.bind(("", UDP_BROADCAST_PORT))
+        print("\033[95m" +"Client started, listening for offer requests..." + "\033[0m")
 
-    udp_socket.bind(('', UDP_PORT))
-    # Associating the socket with a specific IP address and port on the local machine:
-    # The tuple is (host, port)
-    # '': Bind to all available network interfaces on the machine (e.g., Wi-Fi, Ethernet)
-    # UDP_PORT: Binds the socket to the UDP port
+        while True:
+            data, addr = self.udp_socket.recvfrom(BUFFER_SIZE)
+            if len(data) >= 9:
+                cookie, message_type = struct.unpack('!IB', data[:5])
+                if cookie == MAGIC_COOKIE and message_type == OFFER_MESSAGE_TYPE:
+                    udp_port, tcp_port = struct.unpack('!HH', data[5:9])
+                    self.server_address = (addr[0], udp_port, tcp_port)
+                    print("\033[95m" + f"Received offer from {addr[0]}"+ "\033[0m")
+                    return
 
-    return udp_socket
+    def send_udp_request(self, file_size, index):
+        """Sends a UDP request to the server and measures the speed."""
+        udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        udp_socket.settimeout(1)  # Independent socket per thread
 
-def connect_to_server(server_ip, tcp_port):
-    """
-    Connects to the server using TCP and establishes a basic connection.
-    """
-    try:
+        udp_port = self.server_address[1]
+        server_udp_address = (self.server_address[0], udp_port)
+
+        request_packet = struct.pack('!IBQ', MAGIC_COOKIE, REQUEST_MESSAGE_TYPE, file_size)
+        udp_socket.sendto(request_packet, server_udp_address)
+
+        start_time = time.time()
+        total_bytes = 0
+        received_segments = []
+        total_segments = None  # To be updated when the first packet is received
+
+        while True:
+            try:
+                data, _ = udp_socket.recvfrom(BUFFER_SIZE)
+
+                if len(data) > 20:
+                    cookie, message_type, total_segments_in_packet, segment_number = struct.unpack('!IBQQ', data[:21])
+                    if cookie == MAGIC_COOKIE and message_type == PAYLOAD_MESSAGE_TYPE:
+                        if total_segments is None:
+                            total_segments = total_segments_in_packet  # Set total segments from the first packet
+                        total_bytes += len(data) - 21
+                        received_segments.append(segment_number)
+                        # print(f"Received segment {segment_number + 1}/{total_segments_in_packet}")
+            except socket.timeout:
+                break
+
+        elapsed_time = time.time() - start_time
+        udp_socket.close()
+
+        received_percentage = (len(received_segments) / total_segments * 100) if total_segments else 0
+        speed = (total_bytes * 8 / elapsed_time) if elapsed_time > 0 else 0
+
+        print("\033[0;32m" + f"UDP transfer #{index} finished, total time: {elapsed_time:.2f} seconds, "
+              f"speed: {speed:.2f} bits/second, percentage received: {received_percentage:.2f}%" + "\033[0m")
+
+    def send_tcp_request(self, file_size, index):
+        """Sends a TCP request to the server and measures the speed."""
+        tcp_port = self.server_address[2]
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as tcp_socket:
-            # Created a TCP socket with SOCK_STREAM (IPv4)
-            tcp_socket.connect((server_ip, tcp_port))
-            # the client to connect to the server using the provided server_ip and tcp_port, doing the handshake
-            print(f"Connected to server {server_ip} on TCP port {tcp_port}")
-    except Exception as e:
-        print(f"Error connecting to server: {e}")
+            tcp_socket.connect((self.server_address[0], tcp_port))
+            tcp_socket.sendall(f"{file_size}\n".encode())
 
+            start_time = time.time()
+            total_bytes = 0
 
-def listen_for_offers(udp_socket):
-    """
-    Listens for UDP broadcast offers and parses the offer message.
-    """
-    print('Client started, listening for offer requests...')
-    while True:
-        data, addr = udp_socket.recvfrom(1024)  # Receive data from a broadcast message
+            while True:
+                data = tcp_socket.recv(BUFFER_SIZE)
+                if not data:
+                    break
+                total_bytes += len(data)
 
-        try:
-            # Unpack the first 9 bytes of the offer message
-            magic_cookie, msg_type, udp_port, tcp_port = struct.unpack('!I B H H', data[:9])
-            #  Decodes the first 9 bytes of the message and sets them up in their variable
+            elapsed_time = time.time() - start_time
+            if not elapsed_time:
+                print("\033[0;32m" + f"TCP transfer #{index} finished, total time: {elapsed_time:.2f} seconds, speed: too fast to calculate" + "\033[0m")
+            else:
+                print("\033[0;32m" + f"TCP transfer #{index} finished, total time: {elapsed_time:.2f} seconds, speed: {total_bytes * 8 / elapsed_time:.2f} bits/second" + "\033[0m")
 
-            # # Validate the message
-            if magic_cookie == MAGIC_COOKIE and msg_type == 0x2:
-                print(f"Received offer from {addr[0]}")
-                return addr[0], udp_port # return the ip from where we recieved offer
-            
+    def start(self):
+        """Starts the client application."""
 
-        except struct.error:
-            print(f"Received invalid message from {addr}")
+        # Asking for thhe parameters
+        file_size = int(input("\033[33m" + "Enter file size (bytes): "+ "\033[0m"))
+        tcp_connections = int(input("\033[33m" + "Enter number of TCP connections: "+ "\033[0m"))
+        udp_connections = int(input("\033[33m" + "Enter number of UDP connections: " + "\033[0m"))
 
-def create_request_message(file_size):
-    """
-    Creates an offer message with the required format into easier data that the server can send information as.
-    """
-    message = struct.pack('!I B Q', MAGIC_COOKIE, MESSAGE_TYPE_REQUEST, file_size)
+        # Start listening for offers
+        self.listen_for_offers()
 
-    # Constructing the message in the specific offer message format using binary encoding:
-    # '!I B H H': setting up the format
-    # !: specifies the byte order
-    # I: Unsigned 4-byte Integer - MAGIC_COOKIE
-    # B: Unsigned 1-byte Integer - MESSAGE_TYPE_OFFER
-    # Q: Unsigned 8-byte integer - file_size
-    return message
+        # Open threads list to add all the udp and tcp connection asked
+        threads = []
 
+        # Start TCP threads
+        for i in range(1, tcp_connections + 1):
+            thread = threading.Thread(target=self.send_tcp_request, args=(file_size, i))
+            threads.append(thread)
+            thread.start()
 
-def send_udp_request(udp_socket, server_ip, port, file_size, index):
+        # Start UDP threads
+        for i in range(1, udp_connections + 1):
+            thread = threading.Thread(target=self.send_udp_request, args=(file_size, i))
+            threads.append(thread)
+            thread.start()
 
-    request_message = create_request_message(file_size)
-    udp_socket.sendto(request_message, (server_ip, port))
-    print(f"sent udp number: {index}, to address: {server_ip}:{port}")
+        for thread in threads:
+            thread.join()
+
+        print("\033[1;34m"  + "All transfers complete, listening to offer requests..." + "\033[0m")
+        
+        # Start all over again
+        self.start()
 
 if __name__ == "__main__":
-
-    # file_size = input("Please input file size: ")
-    # tcp_connection_amount = input("Please TCP connections: ")
-    # udp_connection_amoount = input("Please UDP connections: ")
-    
-    file_size = 8589934592 # 1GB = 1 * 8 * 2^30 = 8589934592
-    tcp_connection_amount = 0
-    udp_connection_amount = 2
-
-    udp_packet_size = file_size // udp_connection_amount
-
-
-    udp_socket = create_UDP_socket()
-    offered_server_ip, offered_server_port = listen_for_offers(udp_socket)
-    threads = []
-    for i in range(tcp_connection_amount):
-        pass # open thread for tcp connection
-
-    
-    for i in range(1, udp_connection_amount + 1):
-        threads.append(threading.Thread(target=send_udp_request, args=(udp_socket, offered_server_ip, offered_server_port, udp_packet_size, i), daemon=True))
-        threads[-1].start()
-
-    for thread in threads:
-        thread.join()
-
-    while True:
-        pass
-
-    
-
-
-
-
-
-
-
+    client = SpeedTestClient()
+    client.start()
