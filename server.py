@@ -15,11 +15,11 @@ TCP_PORT = 12345
 class SpeedTestServer:
     def __init__(self):
         """initializes the sockets variables and condition"""
-        self.broadcast_socket = None
-        self.listener_socket = None
+        self.broadcast_socket = None 
+        self.udp_listener_socket = None
         self.server_tcp_socket = None
 
-        # Condition to make sure listening starts
+        # Condition to make sure listening starts after broadcast
         self.condition = threading.Condition()
 
     def start_udp_broadcast(self):
@@ -41,7 +41,7 @@ class SpeedTestServer:
         """Handles a single TCP client connection. after accepting the connection and decoding the file size start
         sending the data through the TCP connection"""
         try:
-            data = client_socket.recv(1024).decode()
+            data = client_socket.recv(1024).decode() # decoding from binary representation to string
             file_size = int(data.strip()) # clean the message of the \n so we can turn it to a integer
             payload = b'a' * file_size  # generate file of requested size
             client_socket.sendall(payload) # 
@@ -64,7 +64,7 @@ class SpeedTestServer:
                 payload = struct.pack(
                     '!IBQQ', MAGIC_COOKIE, PAYLOAD_MESSAGE_TYPE, total_segments, segment
                 ) + b'a' * 1024 # making the payload
-                self.listener_socket.sendto(payload, client_address)
+                self.udp_listener_socket.sendto(payload, client_address)
                 # print(f"Sending segment {segment + 1}/{total_segments} to {client_address}")
                 # time.sleep(0.000000000000000000000001)  # Add delay, helps so we wont drop packets
 
@@ -91,23 +91,23 @@ class SpeedTestServer:
                 self.condition.wait()  # Wait until the broadcast socket is initialized
 
         # Opening socket for listening on a specific port (mainly had an issue with using the same computer to test)
-        self.listener_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.listener_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.listener_socket.bind(("", UDP_LISTENER_PORT))
+        self.udp_listener_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.udp_listener_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.udp_listener_socket.bind(("", UDP_LISTENER_PORT))
 
         while True:
             try:
-                data, addr = self.listener_socket.recvfrom(4096)
+                data, addr = self.udp_listener_socket.recvfrom(4096)
                 # print(f"Received UDP packet from {addr}, data length: {len(data)}") # debugging log
 
                 cookie, message_type = struct.unpack('!IB', data[:5]) 
                 if cookie == MAGIC_COOKIE and message_type == REQUEST_MESSAGE_TYPE:
                     # print(f"Dispatching UDP handler for {addr}") # debugging log
-
                     # For each request message open a new thread to start sending the segments to the client
                     threading.Thread(target=self.handle_udp_connection, args=(addr, data)).start()
             except Exception as e:
-                print(f"Error receiving UDP data: {e}")
+                pass
+            #     print(f"Error receiving UDP data: {e}")
 
     def start(self):
         """Starts the server threads for broadcasting and handling requests."""

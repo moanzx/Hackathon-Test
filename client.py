@@ -25,13 +25,12 @@ class SpeedTestClient:
 
         while True:
             data, addr = self.udp_socket.recvfrom(BUFFER_SIZE)
-            if len(data) >= 9:
-                cookie, message_type = struct.unpack('!IB', data[:5])
-                if cookie == MAGIC_COOKIE and message_type == OFFER_MESSAGE_TYPE:
-                    udp_port, tcp_port = struct.unpack('!HH', data[5:9])
-                    self.server_address = (addr[0], udp_port, tcp_port)
-                    print("\033[95m" + f"Received offer from {addr[0]}"+ "\033[0m")
-                    return
+            cookie, message_type = struct.unpack('!IB', data[:5])
+            if cookie == MAGIC_COOKIE and message_type == OFFER_MESSAGE_TYPE:
+                udp_port, tcp_port = struct.unpack('!HH', data[5:9])
+                self.server_address = (addr[0], udp_port, tcp_port)
+                print("\033[95m" + f"Received offer from {addr[0]}"+ "\033[0m")
+                return
 
     def send_udp_request(self, file_size, index):
         """Sends a UDP request to the server and measures the speed."""
@@ -42,7 +41,7 @@ class SpeedTestClient:
         server_udp_address = (self.server_address[0], udp_port)
 
         request_packet = struct.pack('!IBQ', MAGIC_COOKIE, REQUEST_MESSAGE_TYPE, file_size)
-        udp_socket.sendto(request_packet, server_udp_address)
+        udp_socket.sendto(request_packet, (server_udp_address))
 
         start_time = time.time()
         total_bytes = 0
@@ -68,7 +67,7 @@ class SpeedTestClient:
         udp_socket.close()
 
         received_percentage = (len(received_segments) / total_segments * 100) if total_segments else 0
-        speed = (total_bytes * 8 / elapsed_time) if elapsed_time > 0 else 0
+        speed = (total_bytes * 8 / elapsed_time) if elapsed_time > 0 else "too fast"
 
         print("\033[0;32m" + f"UDP transfer #{index} finished, total time: {elapsed_time:.2f} seconds, "
               f"speed: {speed:.2f} bits/second, percentage received: {received_percentage:.2f}%" + "\033[0m")
