@@ -34,7 +34,7 @@ class SpeedTestServer:
 
         while True:
             message = struct.pack('!IBHH', MAGIC_COOKIE, OFFER_MESSAGE_TYPE, UDP_LISTENER_PORT, TCP_PORT)
-            self.broadcast_socket.sendto(message, ('<broadcast>', UDP_BROADCAST_PORT))
+            self.broadcast_socket.sendto(message, ('192.168.82.255', UDP_BROADCAST_PORT))
             time.sleep(1)
 
     def handle_tcp_connection(self, client_socket):
@@ -66,7 +66,7 @@ class SpeedTestServer:
                 ) + b'a' * 1024 # making the payload
                 self.listener_socket.sendto(payload, client_address)
                 # print(f"Sending segment {segment + 1}/{total_segments} to {client_address}")
-                time.sleep(0.000000000000000000000001)  # Add delay, helps so we wont drop packets
+                # time.sleep(0.000000000000000000000001)  # Add delay, helps so we wont drop packets
 
         except Exception as e:
             print(f"Error handling UDP connection: {e}")
